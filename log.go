@@ -12,12 +12,12 @@ import (
 type Loglevel string
 
 const (
-	DEBUG    Loglevel = "DEBUG"
-	INFO     Loglevel = "INFO"
-	WARNING  Loglevel = "WARNING"
-	ERROR    Loglevel = "ERROR"
-	CRITICAL Loglevel = "CRITICAL"
-	SUCCESS  Loglevel = "SUCCESS"
+	DEBUG   Loglevel = "DEBUG"
+	INFO    Loglevel = "INFO"
+	WARNING Loglevel = "WARNING"
+	ERROR   Loglevel = "ERROR"
+	PANIC   Loglevel = "PANIC"
+	SUCCESS Loglevel = "SUCCESS"
 )
 
 var (
@@ -26,22 +26,22 @@ var (
 
 	// 日志等级优先级
 	levelPriority = map[Loglevel]int{
-		DEBUG:    1,
-		INFO:     2,
-		WARNING:  3,
-		ERROR:    4,
-		CRITICAL: 5,
-		SUCCESS:  6,
+		DEBUG:   1,
+		INFO:    2,
+		WARNING: 3,
+		ERROR:   4,
+		PANIC:   5,
+		SUCCESS: 6,
 	}
 
 	// 日志颜色
 	levelColors = map[string]string{
-		"DEBUG":    "\033[97;46m", // 蓝色
-		"INFO":     "\033[97;42m", // 绿色
-		"WARNING":  "\033[97;43m", // 黄色
-		"ERROR":    "\033[97;41m", // 红色
-		"CRITICAL": "\033[97;45m", // 红色加粗
-		"SUCCESS":  "\033[97;42m", // 绿色加粗
+		"DEBUG":   "\033[97;46m", // 蓝色
+		"INFO":    "\033[97;42m", // 绿色
+		"WARNING": "\033[97;43m", // 黄色
+		"ERROR":   "\033[97;41m", // 红色
+		"PANIC":   "\033[97;45m", // 紫色
+		"SUCCESS": "\033[97;42m", // 绿色加粗
 	}
 
 	// 日志输出目标
@@ -74,18 +74,15 @@ func ensureLogFile() {
 	if lastLogFileDate == today && logFile != nil {
 		return
 	}
-	// 关闭旧文件
 	if logFile != nil {
 		logFile.Close()
 		logFile = nil
 	}
-	// 创建log目录
 	_ = os.MkdirAll("log", 0755)
 	logPath := filepath.Join("log", today+".log")
 	file, err := os.OpenFile(logPath, os.O_CREATE|os.O_WRONLY|os.O_APPEND, 0644)
 	if err == nil {
 		logFile = file
-		// 检查是否已存在，避免重复添加
 		found := false
 		for _, out := range logOutputs {
 			if out.writer == file {
@@ -100,7 +97,7 @@ func ensureLogFile() {
 	}
 }
 
-// 日志输出到所有目标（自动切换文件）
+// 日志输出到所有目标
 func writeLogAllTargets(coloredMsg string, plainMsg string) {
 	ensureLogFile()
 	for _, out := range logOutputs {
@@ -124,7 +121,7 @@ func shouldLog(level Loglevel) bool {
 
 // 日志格式化
 func formatLog(level string, message string, withColor bool) string {
-	now := time.Now().Format("2006-01-02 15:04:05.000")
+	now := time.Now().Format("2006-01-02 15:04:05")
 	pc, file, line, ok := runtime.Caller(3)
 	caller := "unknown"
 	if ok {
@@ -135,12 +132,15 @@ func formatLog(level string, message string, withColor bool) string {
 		}
 	}
 
+	// 统一日志级别的宽度为8个字符
+	levelStr := fmt.Sprintf("%-8s", level)
+
 	if withColor {
-		return fmt.Sprintf("\033[32m%s\033[0m |%s%s\033[0m| \033[35m%s\033[0m - \033[33m%s\033[0m",
-			now, levelColors[level], level, caller, message)
+		return fmt.Sprintf("\033[32m%s\033[0m |\033[0m%s%s\033[0m| \033[35m%s\033[0m - \033[33m%s\033[0m",
+			now, levelColors[level], levelStr, caller, message)
 	}
 	return fmt.Sprintf("%s |%s| %s - %s",
-		now, level, caller, message)
+		now, levelStr, caller, message)
 }
 
 // 通用日志输出
@@ -167,17 +167,63 @@ func logWithLevelf(level string, format string, v ...any) {
 	writeLogAllTargets(coloredLogLine, plainLogLine)
 }
 
-// 公开API
+// 标准库兼容方法
+func Print(v ...any) {
+	logWithLevel("INFO", v...)
+}
+
+func Printf(format string, v ...any) {
+	logWithLevelf("INFO", format, v...)
+}
+
+func Println(v ...any) {
+	logWithLevel("INFO", v...)
+}
+
+func Fatal(v ...any) {
+	logWithLevel("ERROR", v...)
+	os.Exit(1)
+}
+
+func Fatalf(format string, v ...any) {
+	logWithLevelf("ERROR", format, v...)
+	os.Exit(1)
+}
+
+func Fatalln(v ...any) {
+	logWithLevel("ERROR", v...)
+	os.Exit(1)
+}
+
+func Panic(v ...any) {
+	s := fmt.Sprint(v...)
+	logWithLevel("PANIC", s)
+	panic(s)
+}
+
+func Panicf(format string, v ...any) {
+	s := fmt.Sprintf(format, v...)
+	logWithLevel("PANIC", s)
+	panic(s)
+}
+
+func Panicln(v ...any) {
+	s := fmt.Sprintln(v...)
+	logWithLevel("PANIC", s)
+	panic(s)
+}
+
+// 扩展方法
 func Debug(v ...any)    { logWithLevel("DEBUG", v...) }
 func Info(v ...any)     { logWithLevel("INFO", v...) }
 func Warning(v ...any)  { logWithLevel("WARNING", v...) }
 func Error(v ...any)    { logWithLevel("ERROR", v...) }
-func Critical(v ...any) { logWithLevel("CRITICAL", v...) }
+func Critical(v ...any) { logWithLevel("PANIC", v...) }
 func Success(v ...any)  { logWithLevel("SUCCESS", v...) }
 
 func Debugf(format string, v ...any)    { logWithLevelf("DEBUG", format, v...) }
 func Infof(format string, v ...any)     { logWithLevelf("INFO", format, v...) }
 func Warningf(format string, v ...any)  { logWithLevelf("WARNING", format, v...) }
 func Errorf(format string, v ...any)    { logWithLevelf("ERROR", format, v...) }
-func Criticalf(format string, v ...any) { logWithLevelf("CRITICAL", format, v...) }
+func Criticalf(format string, v ...any) { logWithLevelf("PANIC", format, v...) }
 func Successf(format string, v ...any)  { logWithLevelf("SUCCESS", format, v...) }
