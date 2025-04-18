@@ -36,17 +36,17 @@ var (
 
 	// 日志颜色
 	levelColors = map[string]string{
-		"DEBUG":    "[97;46m", // 蓝色
-		"INFO":     "[97;42m", // 绿色
-		"WARNING":  "[97;43m", // 黄色
-		"ERROR":    "[97;41m", // 红色
-		"CRITICAL": "[97;45m", // 红色加粗
-		"SUCCESS":  "[97;42m", // 绿色加粗
+		"DEBUG":    "\033[97;46m", // 蓝色
+		"INFO":     "\033[97;42m", // 绿色
+		"WARNING":  "\033[97;43m", // 黄色
+		"ERROR":    "\033[97;41m", // 红色
+		"CRITICAL": "\033[97;45m", // 红色加粗
+		"SUCCESS":  "\033[97;42m", // 绿色加粗
 	}
 
 	// 日志输出目标
 	logOutputs = []logOutput{
-		{writer: os.Stdout},
+		{writer: os.Stdout, isConsole: true},
 	}
 	lastLogFileDate = "" // 记录上一次写入日志的日期
 	logFile         *os.File
@@ -54,7 +54,8 @@ var (
 
 // 日志输出结构
 type logOutput struct {
-	writer *os.File
+	writer    *os.File
+	isConsole bool
 }
 
 // 添加日志输出目标（如文件）
@@ -63,7 +64,7 @@ func AddLogOutputFile(filepath string) error {
 	if err != nil {
 		return err
 	}
-	logOutputs = append(logOutputs, logOutput{writer: file})
+	logOutputs = append(logOutputs, logOutput{writer: file, isConsole: false})
 	return nil
 }
 
@@ -93,17 +94,21 @@ func ensureLogFile() {
 			}
 		}
 		if !found {
-			logOutputs = append(logOutputs, logOutput{writer: file})
+			logOutputs = append(logOutputs, logOutput{writer: file, isConsole: false})
 		}
 		lastLogFileDate = today
 	}
 }
 
 // 日志输出到所有目标（自动切换文件）
-func writeLogAllTargets(msg string) {
+func writeLogAllTargets(coloredMsg string, plainMsg string) {
 	ensureLogFile()
 	for _, out := range logOutputs {
-		fmt.Fprintln(out.writer, msg)
+		if out.isConsole {
+			fmt.Fprintln(out.writer, coloredMsg)
+		} else {
+			fmt.Fprintln(out.writer, plainMsg)
+		}
 	}
 }
 
@@ -118,7 +123,7 @@ func shouldLog(level Loglevel) bool {
 }
 
 // 日志格式化
-func formatLog(level string, message string) string {
+func formatLog(level string, message string, withColor bool) string {
 	now := time.Now().Format("2006-01-02 15:04:05.000")
 	pc, file, line, ok := runtime.Caller(3)
 	caller := "unknown"
@@ -129,8 +134,13 @@ func formatLog(level string, message string) string {
 			caller = fmt.Sprintf("%s.%s:%d", funcName[:index], funcName[index+1:], line)
 		}
 	}
-	return fmt.Sprintf("[32m%s[0m |%s%s[0m| [35m%s[0m - [33m%s[0m",
-		now, levelColors[level], level, caller, message)
+
+	if withColor {
+		return fmt.Sprintf("\033[32m%s\033[0m |%s%s\033[0m| \033[35m%s\033[0m - \033[33m%s\033[0m",
+			now, levelColors[level], level, caller, message)
+	}
+	return fmt.Sprintf("%s |%s| %s - %s",
+		now, level, caller, message)
 }
 
 // 通用日志输出
@@ -140,8 +150,9 @@ func logWithLevel(level string, v ...any) {
 		return
 	}
 	message := fmt.Sprint(v...)
-	logLine := formatLog(level, message)
-	writeLogAllTargets(logLine)
+	coloredLogLine := formatLog(level, message, true)
+	plainLogLine := formatLog(level, message, false)
+	writeLogAllTargets(coloredLogLine, plainLogLine)
 }
 
 // 支持格式化输出
@@ -151,8 +162,9 @@ func logWithLevelf(level string, format string, v ...any) {
 		return
 	}
 	message := fmt.Sprintf(format, v...)
-	logLine := formatLog(level, message)
-	writeLogAllTargets(logLine)
+	coloredLogLine := formatLog(level, message, true)
+	plainLogLine := formatLog(level, message, false)
+	writeLogAllTargets(coloredLogLine, plainLogLine)
 }
 
 // 公开API
