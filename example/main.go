@@ -4,6 +4,11 @@ import (
 	"github.com/go-enols/go-log"
 )
 
+type Test struct {
+	Id   int
+	Name string
+}
+
 func main() {
 	// 基础日志方法
 	log.Debug("这是一条调试日志")
@@ -11,6 +16,9 @@ func main() {
 	log.Warning("这是一条警告日志")
 	log.Error("这是一条错误日志")
 	log.Success("这是一条成功日志")
+	log.Debug("这是一条调试日志", Test{Id: 1, Name: "test"})
+	log.Debug("这是一条调试日志", &Test{Id: 1, Name: "test"})
+	log.Debug("这是一条调试日志", map[string]any{"map": 1, "aa": "test"})
 
 	// 格式化日志方法
 	log.Debugf("这是一条格式化的调试日志: %s", "debug")
@@ -53,4 +61,8 @@ func main() {
 
 	// 输出到控制台和文件
 	log.Info("这条日志会同时输出到控制台和文件")
+
+	log.Debug("这条调试日志不会显示")  // 不会显示，因为级别低于 WARNING
+	log.Warning("这条警告日志会显示") // 会显示
+	log.Error("这条错误日志会显示")   // 会显示
 }
