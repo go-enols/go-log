@@ -174,7 +174,10 @@ func logWithLevel(level string, v ...any) {
 			kind = val.Kind()
 		}
 
-		if kind == reflect.Struct || kind == reflect.Map || kind == reflect.Array {
+		if err, ok := arg.(error); ok {
+			// 特殊处理 error 接口类型
+			parts = append(parts, err.Error())
+		} else if kind == reflect.Struct || kind == reflect.Map || kind == reflect.Array {
 			jsonData, err := json.MarshalIndent(arg, "", "  ") // 使用 MarshalIndent 并设置缩进
 			if err == nil {
 				parts = append(parts, val.Type().Name(), " "+string(jsonData)) // 在 JSON 前添加换行符
