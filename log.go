@@ -8,7 +8,9 @@ import (
 	"reflect"
 	"runtime"
 	"strings"
+	"syscall"
 	"time"
+	"unsafe"
 )
 
 type Loglevel string
@@ -61,12 +63,59 @@ var (
 	}
 	lastLogFileDate = "" // 记录上一次写入日志的日期
 	logFile         *os.File
+
+	// Windows控制台ANSI支持检测
+	ansiSupported = checkANSISupport()
 )
 
 // 日志输出结构
 type logOutput struct {
 	writer    *os.File
 	isConsole bool
+}
+
+// Windows API 常量
+const (
+	ENABLE_VIRTUAL_TERMINAL_PROCESSING = 0x0004
+	STD_OUTPUT_HANDLE                  = ^uintptr(0) - 1 + 1
+)
+
+// Windows API 函数
+var (
+	kernel32           = syscall.NewLazyDLL("kernel32.dll")
+	procGetConsoleMode = kernel32.NewProc("GetConsoleMode")
+	procSetConsoleMode = kernel32.NewProc("SetConsoleMode")
+	procGetStdHandle   = kernel32.NewProc("GetStdHandle")
+)
+
+// 检查并启用Windows控制台ANSI支持
+func checkANSISupport() bool {
+	if runtime.GOOS != "windows" {
+		return true // 非Windows系统默认支持ANSI
+	}
+
+	// 获取标准输出句柄
+	handle, _, _ := procGetStdHandle.Call(STD_OUTPUT_HANDLE)
+	if handle == 0 {
+		return false
+	}
+
+	// 获取当前控制台模式
+	var mode uint32
+	ret, _, _ := procGetConsoleMode.Call(handle, uintptr(unsafe.Pointer(&mode)))
+	if ret == 0 {
+		return false
+	}
+
+	// 检查是否已启用虚拟终端处理
+	if mode&ENABLE_VIRTUAL_TERMINAL_PROCESSING != 0 {
+		return true
+	}
+
+	// 尝试启用虚拟终端处理
+	newMode := mode | ENABLE_VIRTUAL_TERMINAL_PROCESSING
+	ret, _, _ = procSetConsoleMode.Call(handle, uintptr(newMode))
+	return ret != 0
 }
 
 // 添加日志输出目标（如文件）
@@ -146,7 +195,8 @@ func formatLog(level string, message string, withColor bool) string {
 	// 统一日志级别的宽度为8个字符
 	levelStr := fmt.Sprintf("%-8s", level)
 
-	if withColor {
+	// 只有在支持ANSI的情况下才使用颜色
+	if withColor && ansiSupported {
 		return fmt.Sprintf("\033[32m%s\033[0m |\033[0m%s%s\033[0m| \033[35m%s\033[0m - %s%s\033[0m",
 			now, levelColors[level], levelStr, caller, levelFontColors[level], message) // 使用 levelFontColors 设置消息颜色
 	}
