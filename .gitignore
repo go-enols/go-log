@@ -1,0 +1,31 @@
+# 日志文件和文件夹
+*.log
+log/
+app.log
+example/log/
+example/*.log
+
+# 其他常见的忽略文件
+.DS_Store
+Thumbs.db
+*.tmp
+*.temp
+
+# IDE文件
+.vscode/
+.idea/
+*.swp
+*.swo
+
+# 构建产物
+*.exe
+*.dll
+*.so
+*.dylib
+
+# 测试覆盖率文件
+*.out
+coverage.txt
+
+# 依赖目录
+vendor/
