@@ -151,8 +151,8 @@ func formatLog(level string, message string) string {
 	// 统一日志级别的宽度为8个字符
 	levelStr := fmt.Sprintf("%-8s", level)
 
-	return fmt.Sprintf("%s |%s| %s - %s",
-		now, levelStr, caller, message)
+	return fmt.Sprintf("\033[32m%s\033[0m |\033[0m%s%s\033[0m| \033[35m%s\033[0m - %s%s\033[0m",
+		now, levelColors[level], levelStr, caller, levelFontColors[level], message)
 }
 
 // 通用日志输出
