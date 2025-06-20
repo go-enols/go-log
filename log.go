@@ -33,7 +33,7 @@ var (
 		"SUCCESS": "\033[32m", // 绿色
 	}
 	// 默认日志等级
-	currentLevel = DEBUG
+	currentLevel *Loglevel
 
 	// 日志等级优先级
 	levelPriority = map[Loglevel]int{
@@ -67,6 +67,11 @@ var (
 type logOutput struct {
 	writer    *os.File
 	isConsole bool
+}
+
+func init() {
+	level := DEBUG
+	currentLevel = &level
 }
 
 // 添加日志输出目标（如文件）
@@ -122,12 +127,12 @@ func writeLogAllTargets(coloredMsg string, plainMsg string) {
 
 // 设置日志等级
 func SetLogLevel(level Loglevel) {
-	currentLevel = level
+	*currentLevel = level
 }
 
 // 判断是否输出该等级日志
 func shouldLog(level Loglevel) bool {
-	return levelPriority[level] >= levelPriority[currentLevel]
+	return levelPriority[level] >= levelPriority[*currentLevel]
 }
 
 // 日志格式化
