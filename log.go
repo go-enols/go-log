@@ -136,7 +136,7 @@ func shouldLog(level Loglevel) bool {
 }
 
 // 日志格式化
-func formatLog(level string, message string, withColor bool) string {
+func formatLog(level string, message string) string {
 	now := time.Now().Format("2006-01-02 15:04:05")
 	pc, file, line, ok := runtime.Caller(3)
 	caller := "unknown"
@@ -151,10 +151,6 @@ func formatLog(level string, message string, withColor bool) string {
 	// 统一日志级别的宽度为8个字符
 	levelStr := fmt.Sprintf("%-8s", level)
 
-	if withColor {
-		return fmt.Sprintf("\033[32m%s\033[0m |\033[0m%s%s\033[0m| \033[35m%s\033[0m - %s%s\033[0m",
-			now, levelColors[level], levelStr, caller, levelFontColors[level], message) // 使用 levelFontColors 设置消息颜色
-	}
 	return fmt.Sprintf("%s |%s| %s - %s",
 		now, levelStr, caller, message)
 }
@@ -197,8 +193,8 @@ func logWithLevel(level string, v ...any) {
 	}
 	message := strings.Join(parts, " ") // 使用空格连接各个部分
 
-	coloredLogLine := formatLog(level, message, true)
-	plainLogLine := formatLog(level, message, false)
+	coloredLogLine := formatLog(level, message)
+	plainLogLine := formatLog(level, message)
 	writeLogAllTargets(coloredLogLine, plainLogLine)
 }
 
@@ -209,8 +205,8 @@ func logWithLevelf(level string, format string, v ...any) {
 		return
 	}
 	message := fmt.Sprintf(format, v...)
-	coloredLogLine := formatLog(level, message, true)
-	plainLogLine := formatLog(level, message, false)
+	coloredLogLine := formatLog(level, message)
+	plainLogLine := formatLog(level, message)
 	writeLogAllTargets(coloredLogLine, plainLogLine)
 }
 
