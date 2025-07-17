@@ -1,6 +1,7 @@
 package log
 
 import (
+	"context"
 	"encoding/json"
 	"fmt"
 	"os"
@@ -10,6 +11,56 @@ import (
 	"strings"
 	"time"
 )
+
+// LogEntry 表示一个日志条目
+type LogEntry struct {
+	Level     Loglevel
+	Message   string
+	Timestamp time.Time
+	Caller    string
+	Context   context.Context
+}
+
+// Middleware 中间件接口
+type Middleware interface {
+	// Process 处理日志条目，返回是否继续处理
+	Process(entry *LogEntry) bool
+}
+
+// MiddlewareFunc 中间件函数类型
+type MiddlewareFunc func(entry *LogEntry) bool
+
+// Process 实现 Middleware 接口
+func (f MiddlewareFunc) Process(entry *LogEntry) bool {
+	return f(entry)
+}
+
+// MiddlewareChain 中间件链
+type MiddlewareChain struct {
+	middlewares []Middleware
+}
+
+// NewMiddlewareChain 创建新的中间件链
+func NewMiddlewareChain() *MiddlewareChain {
+	return &MiddlewareChain{
+		middlewares: make([]Middleware, 0),
+	}
+}
+
+// Use 添加中间件到链中
+func (mc *MiddlewareChain) Use(middleware Middleware) {
+	mc.middlewares = append(mc.middlewares, middleware)
+}
+
+// Process 执行中间件链
+func (mc *MiddlewareChain) Process(entry *LogEntry) bool {
+	for _, middleware := range mc.middlewares {
+		if !middleware.Process(entry) {
+			return false
+		}
+	}
+	return true
+}
 
 type Loglevel string
 
@@ -61,6 +112,9 @@ var (
 	}
 	lastLogFileDate = "" // 记录上一次写入日志的日期
 	logFile         *os.File
+
+	// 全局中间件链
+	middlewareChain = NewMiddlewareChain()
 )
 
 // 日志输出结构
@@ -72,6 +126,21 @@ type logOutput struct {
 func init() {
 	level := DEBUG
 	currentLevel = &level
+}
+
+// UseMiddleware 添加中间件到全局中间件链
+func UseMiddleware(middleware Middleware) {
+	middlewareChain.Use(middleware)
+}
+
+// UseMiddlewareFunc 添加中间件函数到全局中间件链
+func UseMiddlewareFunc(fn func(entry *LogEntry) bool) {
+	middlewareChain.Use(MiddlewareFunc(fn))
+}
+
+// ClearMiddlewares 清空所有中间件
+func ClearMiddlewares() {
+	middlewareChain = NewMiddlewareChain()
 }
 
 // 添加日志输出目标（如文件）
@@ -135,8 +204,8 @@ func shouldLog(level Loglevel) bool {
 	return levelPriority[level] >= levelPriority[*currentLevel]
 }
 
-// 日志格式化
-func formatLog(level string, message string) string {
+// 日志格式化（带颜色，用于控制台输出）
+func formatLogColored(level string, message string) string {
 	now := time.Now().Format("2006-01-02 15:04:05")
 	pc, file, line, ok := runtime.Caller(3)
 	caller := "unknown"
@@ -153,6 +222,26 @@ func formatLog(level string, message string) string {
 
 	return fmt.Sprintf("\033[32m%s\033[0m |\033[0m%s%s\033[0m| \033[35m%s\033[0m - %s%s\033[0m",
 		now, levelColors[level], levelStr, caller, levelFontColors[level], message)
+}
+
+// 日志格式化（不带颜色，用于文件输出）
+func formatLogPlain(level string, message string) string {
+	now := time.Now().Format("2006-01-02 15:04:05")
+	pc, file, line, ok := runtime.Caller(3)
+	caller := "unknown"
+	if ok {
+		funcName := runtime.FuncForPC(pc).Name()
+		caller = fmt.Sprintf("%s:%d", file, line)
+		if index := strings.LastIndex(funcName, "."); index != -1 {
+			caller = fmt.Sprintf("%s.%s:%d", funcName[:index], funcName[index+1:], line)
+		}
+	}
+
+	// 统一日志级别的宽度为8个字符
+	levelStr := fmt.Sprintf("%-8s", level)
+
+	return fmt.Sprintf("%s |%s| %s - %s",
+		now, levelStr, caller, message)
 }
 
 // 通用日志输出
@@ -193,9 +282,39 @@ func logWithLevel(level string, v ...any) {
 	}
 	message := strings.Join(parts, " ") // 使用空格连接各个部分
 
-	coloredLogLine := formatLog(level, message)
-	plainLogLine := formatLog(level, message)
+	// 创建日志条目
+	entry := createLogEntry(lv, message)
+	
+	// 通过中间件链处理
+	if !middlewareChain.Process(entry) {
+		return
+	}
+
+	coloredLogLine := formatLogColored(level, message)
+	plainLogLine := formatLogPlain(level, message)
 	writeLogAllTargets(coloredLogLine, plainLogLine)
+}
+
+// createLogEntry 创建日志条目
+func createLogEntry(level Loglevel, message string) *LogEntry {
+	now := time.Now()
+	pc, file, line, ok := runtime.Caller(4)
+	caller := "unknown"
+	if ok {
+		funcName := runtime.FuncForPC(pc).Name()
+		caller = fmt.Sprintf("%s:%d", file, line)
+		if index := strings.LastIndex(funcName, "."); index != -1 {
+			caller = fmt.Sprintf("%s.%s:%d", funcName[:index], funcName[index+1:], line)
+		}
+	}
+
+	return &LogEntry{
+		Level:     level,
+		Message:   message,
+		Timestamp: now,
+		Caller:    caller,
+		Context:   context.Background(),
+	}
 }
 
 // 支持格式化输出
@@ -205,8 +324,17 @@ func logWithLevelf(level string, format string, v ...any) {
 		return
 	}
 	message := fmt.Sprintf(format, v...)
-	coloredLogLine := formatLog(level, message)
-	plainLogLine := formatLog(level, message)
+	
+	// 创建日志条目
+	entry := createLogEntry(lv, message)
+	
+	// 通过中间件链处理
+	if !middlewareChain.Process(entry) {
+		return
+	}
+	
+	coloredLogLine := formatLogColored(level, message)
+	plainLogLine := formatLogPlain(level, message)
 	writeLogAllTargets(coloredLogLine, plainLogLine)
 }
 
@@ -318,3 +446,113 @@ func Warningf(format string, v ...any)  { logWithLevelf(string(WARNING), format,
 func Errorf(format string, v ...any)    { logWithLevelf(string(ERROR), format, v...) }
 func Criticalf(format string, v ...any) { logWithLevelf(string(PANIC), format, v...) }
 func Successf(format string, v ...any)  { logWithLevelf(string(SUCCESS), format, v...) }
+
+// ==================== 常用中间件示例 ====================
+
+// FilterMiddleware 日志级别过滤中间件
+type FilterMiddleware struct {
+	MinLevel Loglevel
+}
+
+// NewFilterMiddleware 创建级别过滤中间件
+func NewFilterMiddleware(minLevel Loglevel) *FilterMiddleware {
+	return &FilterMiddleware{MinLevel: minLevel}
+}
+
+// Process 实现 Middleware 接口
+func (f *FilterMiddleware) Process(entry *LogEntry) bool {
+	return levelPriority[entry.Level] >= levelPriority[f.MinLevel]
+}
+
+// DatabaseMiddleware 数据库日志中间件示例
+type DatabaseMiddleware struct {
+	TableName string
+	Callback  func(entry *LogEntry) error
+}
+
+// NewDatabaseMiddleware 创建数据库中间件
+func NewDatabaseMiddleware(tableName string, callback func(entry *LogEntry) error) *DatabaseMiddleware {
+	return &DatabaseMiddleware{
+		TableName: tableName,
+		Callback:  callback,
+	}
+}
+
+// Process 实现 Middleware 接口
+func (d *DatabaseMiddleware) Process(entry *LogEntry) bool {
+	if d.Callback != nil {
+		if err := d.Callback(entry); err != nil {
+			// 数据库写入失败，可以选择记录错误或继续处理
+			fmt.Printf("Database middleware error: %v\n", err)
+		}
+	}
+	return true // 继续处理其他中间件
+}
+
+// HTTPMiddleware HTTP请求日志中间件示例
+type HTTPMiddleware struct {
+	URL     string
+	Headers map[string]string
+	Timeout time.Duration
+}
+
+// NewHTTPMiddleware 创建HTTP中间件
+func NewHTTPMiddleware(url string, headers map[string]string, timeout time.Duration) *HTTPMiddleware {
+	return &HTTPMiddleware{
+		URL:     url,
+		Headers: headers,
+		Timeout: timeout,
+	}
+}
+
+// Process 实现 Middleware 接口
+func (h *HTTPMiddleware) Process(entry *LogEntry) bool {
+	// 这里可以实现HTTP请求发送逻辑
+	// 为了避免引入额外依赖，这里只是示例
+	go func() {
+		// 异步发送HTTP请求，避免阻塞日志输出
+		// 实际实现中可以使用 net/http 包
+		fmt.Printf("Sending log to %s: [%s] %s\n", h.URL, entry.Level, entry.Message)
+	}()
+	return true
+}
+
+// FileFilterMiddleware 文件输出过滤中间件
+type FileFilterMiddleware struct {
+	FilePath   string
+	LevelFilter map[Loglevel]bool
+}
+
+// NewFileFilterMiddleware 创建文件过滤中间件
+func NewFileFilterMiddleware(filePath string, allowedLevels []Loglevel) *FileFilterMiddleware {
+	filter := make(map[Loglevel]bool)
+	for _, level := range allowedLevels {
+		filter[level] = true
+	}
+	return &FileFilterMiddleware{
+		FilePath:    filePath,
+		LevelFilter: filter,
+	}
+}
+
+// Process 实现 Middleware 接口
+func (f *FileFilterMiddleware) Process(entry *LogEntry) bool {
+	if f.LevelFilter[entry.Level] {
+		// 异步写入文件
+		go func() {
+			file, err := os.OpenFile(f.FilePath, os.O_CREATE|os.O_WRONLY|os.O_APPEND, 0644)
+			if err != nil {
+				return
+			}
+			defer file.Close()
+			
+			logLine := fmt.Sprintf("%s |%-8s| %s - %s\n",
+				entry.Timestamp.Format("2006-01-02 15:04:05"),
+				entry.Level,
+				entry.Caller,
+				entry.Message)
+			file.WriteString(logLine)
+		}()
+	}
+	return true
+}
